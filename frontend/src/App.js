@@ -253,7 +253,9 @@ export default function App({ user }) {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+  fetchData();
+}, [fetchData]);
 
   const switchTab = (id) => { setTab(id); setPageKey(k => k + 1); };
 
