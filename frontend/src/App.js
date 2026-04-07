@@ -253,9 +253,10 @@ export default function App({ user }) {
     }
   };
 
-  useEffect(() => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+useEffect(() => {
   fetchData();
-}, [fetchData]);
+}, []);;
 
   const switchTab = (id) => { setTab(id); setPageKey(k => k + 1); };
 
