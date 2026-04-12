@@ -5,6 +5,7 @@ import { auth, db } from "./firebase";
 import { signOut } from "firebase/auth";
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where, orderBy } from "firebase/firestore";
 
+
 const PLACEMENT_DATE = new Date("2025-11-01");
 
 const COMPANIES = [
@@ -211,52 +212,61 @@ export default function App({ user }) {
   const [mlRecs, setMlRecs] = useState([]);
 
   // ── ML: Get score from Flask ──
-  const fetchMLScore = async (activities) => {
-    if (!activities.length) return;
-    try {
-      const totals = activities.reduce(
-        (a, d) => ({
-          coding: a.coding + d.coding,
-          aptitude: a.aptitude + d.aptitude,
-          interviews: a.interviews + d.interviews,
-          studyHours: a.studyHours + d.studyHours,
-        }),
-        { coding: 0, aptitude: 0, interviews: 0, studyHours: 0 }
-      );
-      const res = await axios.post("http://localhost:8000/predict", {
-        total_coding: totals.coding,
-        total_aptitude: totals.aptitude,
-        total_interviews: totals.interviews,
-        total_study_hrs: totals.studyHours,
-      });
-      setMlScore(res.data.readiness_score);
-      setMlRecs(res.data.recommendations);
-    } catch (e) {
-      console.log("ML error (Flask not running?):", e);
-    }
-  };
+ const fetchMLScore = async (activities) => {
+  if (!activities.length) return;
+
+  try {
+    const totals = activities.reduce(
+  (a, d) => ({
+    coding:     a.coding     + (d.coding || 0),
+    aptitude:   a.aptitude   + (d.aptitude || 0),
+    interviews: a.interviews + (d.interviews || 0),
+    studyHours: a.studyHours + (d.studyHours || 0),
+  }),
+  { coding: 0, aptitude: 0, interviews: 0, studyHours: 0 }
+);
+
+    const res = await axios.post(
+      "https://prepwise-backend.onrender.com/score",
+      {
+        codingHours: totals.coding,
+        aptitudeHours: totals.aptitude,
+        mockInterviews: totals.interviews,
+        studyHours: totals.studyHours,
+      }
+    );
+
+    console.log("ML RESPONSE:", res.data);
+
+    setMlScore(res.data.score);
+    setMlRecs(res.data.recommendations || []);
+
+  } catch (e) {
+    console.error("ML fetch error:", e.response?.data || e.message);
+    setMlScore(null);
+    setMlRecs([]);
+  }
+};
+
+   
 
   // ── FIRESTORE: Fetch activities ──
   const fetchData = async () => {
-    try {
-      const q = query(
-        collection(db, "activities"),
-        where("uid", "==", auth.currentUser?.uid),
-        orderBy("date", "asc")
-      );
-      const snap = await getDocs(q);
-      const list = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
-      setData(list);
-      fetchMLScore(list); // ✅ ML call after Firestore fetch
-    } catch (e) {
-      console.log("Fetch error:", e);
-    }
-  };
+  try {
+    const q = query(
+      collection(db, "activities"),
+      where("uid", "==", auth.currentUser?.uid)
+    );
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-useEffect(() => {
-  fetchData();
-}, []);;
+    const snap = await getDocs(q);
+    const list = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    setData(list);
+    fetchMLScore(list); // ✅ ML call after Firestore fetch
+  } catch (e) {
+    console.log("Fetch error:", e);
+  }
+};
+
 
   const switchTab = (id) => { setTab(id); setPageKey(k => k + 1); };
 
@@ -528,53 +538,66 @@ useEffect(() => {
             )}
 
             {/* ══ LOG ACTIVITY ══ */}
-            {tab === "log" && (
-              <div style={{ maxWidth: 520 }}>
-                <div style={{ marginBottom: 28 }}>
-                  <div style={{ ...syne, fontSize: 26, fontWeight: 700, letterSpacing: "-0.4px" }}>Log Activity</div>
-                  <div style={{ ...mono, color: "rgba(238,233,255,0.35)", fontSize: 11, marginTop: 5, letterSpacing: "0.5px" }}>TRACK YOUR DAILY PREPARATION</div>
+{tab === "log" && (
+  <div style={{
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: "80vh"
+  }}>
+    <div style={{ maxWidth: 520, width: "100%" }}>
+      
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ ...syne, fontSize: 26, fontWeight: 700, letterSpacing: "-0.4px" }}>Log Activity</div>
+        <div style={{ ...mono, color: "rgba(238,233,255,0.35)", fontSize: 11, marginTop: 5, letterSpacing: "0.5px" }}>TRACK YOUR DAILY PREPARATION</div>
+      </div>
+
+      {msg === "saved" ? (
+        <div className="gc" style={{ ...gc, textAlign: "center", padding: "44px", border: "1px solid rgba(52,211,153,0.25)", background: "rgba(52,211,153,0.04)" }}>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg,rgba(52,211,153,0.2),rgba(56,189,248,0.2))", border: "1px solid rgba(52,211,153,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, margin: "0 auto 16px" }}>✓</div>
+          <div style={{ ...syne, fontSize: 20, fontWeight: 700, color: "#34D399" }}>Activity Saved to Firestore!</div>
+          <div style={{ fontSize: 13, color: "rgba(238,233,255,0.45)", marginTop: 8 }}>Your readiness score has been updated.</div>
+          <button onClick={() => setMsg("")} style={{ marginTop: 20, padding: "10px 24px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "rgba(238,233,255,0.6)", cursor: "pointer", fontSize: 13, fontFamily: "'Cabinet Grotesk',sans-serif" }}>
+            Log Another
+          </button>
+        </div>
+      ) : (
+        <div className="gc" style={gc}>
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ ...mono, fontSize: 9, color: "rgba(238,233,255,0.35)", marginBottom: 8, letterSpacing: "0.5px" }}>DATE</div>
+              <input className="f-inp" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} style={inp} />
+            </div>
+
+            {[
+              { key: "coding",     label: "Coding Problems Solved", color: "#34D399", icon: "💻" },
+              { key: "aptitude",   label: "Aptitude Questions",     color: "#FB923C", icon: "🧠" },
+              { key: "interviews", label: "Mock Interviews",         color: "#C084FC", icon: "🎤" },
+              { key: "studyHours", label: "Study Hours",             color: "#38BDF8", icon: "📚" },
+            ].map(f => (
+              <div key={f.key} style={{ marginBottom: 18 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", ...mono, fontSize: 9, color: "rgba(238,233,255,0.35)", marginBottom: 8, letterSpacing: "0.5px" }}>
+                  <span>{f.icon} {f.label.toUpperCase()}</span>
+                  <span style={{ color: f.color }}>GOAL: {goals[f.key]}/day</span>
                 </div>
-                {msg === "saved" ? (
-                  <div className="gc" style={{ ...gc, textAlign: "center", padding: "44px", border: "1px solid rgba(52,211,153,0.25)", background: "rgba(52,211,153,0.04)" }}>
-                    <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg,rgba(52,211,153,0.2),rgba(56,189,248,0.2))", border: "1px solid rgba(52,211,153,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, margin: "0 auto 16px" }}>✓</div>
-                    <div style={{ ...syne, fontSize: 20, fontWeight: 700, color: "#34D399" }}>Activity Saved to Firestore!</div>
-                    <div style={{ fontSize: 13, color: "rgba(238,233,255,0.45)", marginTop: 8 }}>Your readiness score has been updated.</div>
-                    <button onClick={() => setMsg("")} style={{ marginTop: 20, padding: "10px 24px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "rgba(238,233,255,0.6)", cursor: "pointer", fontSize: 13, fontFamily: "'Cabinet Grotesk',sans-serif" }}>
-                      Log Another
-                    </button>
-                  </div>
-                ) : (
-                  <div className="gc" style={gc}>
-                    <form onSubmit={handleSubmit}>
-                      <div style={{ marginBottom: 18 }}>
-                        <div style={{ ...mono, fontSize: 9, color: "rgba(238,233,255,0.35)", marginBottom: 8, letterSpacing: "0.5px" }}>DATE</div>
-                        <input className="f-inp" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} style={inp} />
-                      </div>
-                      {[
-                        { key: "coding",     label: "Coding Problems Solved", color: "#34D399", icon: "💻" },
-                        { key: "aptitude",   label: "Aptitude Questions",     color: "#FB923C", icon: "🧠" },
-                        { key: "interviews", label: "Mock Interviews",         color: "#C084FC", icon: "🎤" },
-                        { key: "studyHours", label: "Study Hours",             color: "#38BDF8", icon: "📚" },
-                      ].map(f => (
-                        <div key={f.key} style={{ marginBottom: 18 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", ...mono, fontSize: 9, color: "rgba(238,233,255,0.35)", marginBottom: 8, letterSpacing: "0.5px" }}>
-                            <span>{f.icon} {f.label.toUpperCase()}</span>
-                            <span style={{ color: f.color }}>GOAL: {goals[f.key]}/day</span>
-                          </div>
-                          <input className="f-inp" type="number" min="0" required placeholder="0" value={form[f.key]}
-                            onChange={e => setForm({ ...form, [f.key]: e.target.value })}
-                            style={{ ...inp, borderColor: form[f.key] ? f.color + "50" : "rgba(255,255,255,0.10)" }} />
-                        </div>
-                      ))}
-                      <button type="submit" className="save-btn" style={{ width: "100%", padding: "13px", borderRadius: 11, border: "none", background: "linear-gradient(135deg,#C084FC,#38BDF8)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", ...syne, boxShadow: "0 8px 24px rgba(192,132,252,0.28)" }}>
-                        Save to Firestore →
-                      </button>
-                      {msg === "error" && <div style={{ textAlign: "center", color: "#F472B6", marginTop: 12, fontSize: 13 }}>✗ Something went wrong. Check console.</div>}
-                    </form>
-                  </div>
-                )}
+                <input className="f-inp" type="number" min="0" required placeholder="0" value={form[f.key]}
+                  onChange={e => setForm({ ...form, [f.key]: e.target.value })}
+                  style={{ ...inp, borderColor: form[f.key] ? f.color + "50" : "rgba(255,255,255,0.10)" }} />
               </div>
-            )}
+            ))}
+
+            <button type="submit" className="save-btn" style={{ width: "100%", padding: "13px", borderRadius: 11, border: "none", background: "linear-gradient(135deg,#C084FC,#38BDF8)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", ...syne, boxShadow: "0 8px 24px rgba(192,132,252,0.28)" }}>
+              Save to Firestore →
+            </button>
+
+            {msg === "error" && <div style={{ textAlign: "center", color: "#F472B6", marginTop: 12, fontSize: 13 }}>✗ Something went wrong. Check console.</div>}
+          </form>
+        </div>
+      )}
+
+    </div>
+  </div>
+)}
 
             {/* ══ AI SCORE ══ */}
             {tab === "score" && (
@@ -855,5 +878,4 @@ useEffect(() => {
         </main>
       </div>
     </>
-  );
-}
+  )}
